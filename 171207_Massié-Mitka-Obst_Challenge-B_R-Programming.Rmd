@@ -1,0 +1,412 @@
+---
+title: "R Programming - Challenge B"
+author: "Camille Massié, Joanna Mitka, Johanna Joy Obst"
+date: "23 November 2017"
+output: html_document
+---
+
+**Link to the Github Repository: ** https://github.com/JohannaJoyObst/Challenge-B-2017
+
+```{r setup,echo=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, results="hide", messages=FALSE, include=FALSE, warning=FALSE)
+
+```
+```{r install, eval=FALSE, comment=NA}
+
+install.packages("knitr")
+install.packages("randomForest")
+install.packages("ggplot2")
+install.packages("dplyr")
+install.packages("tidyverse") 
+install.packages("stringi")
+install.packages("rpart")
+install.packages("caret")
+install.packages("np")
+install.packages("readxl")
+install.packages("ff")
+install.packages("ffbase")
+
+```
+```{r libraries}
+
+library(knitr)
+library (randomForest)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(stringi)
+library(rpart)
+library(caret)
+library(np)
+library(readxl)
+library(ff)
+library(ffbase)
+
+```
+
+## Task 1B - Predicting house prices in Ames, Iowa (continued)
+
+```{r step1prep}
+
+#Import training Dataset - The link relies on having set the correct working directory where the file is located.
+train<-read.csv("train.csv",header=T,dec=",")
+test<-read.csv("test.csv", header=T,dec=",")
+
+```
+
+**Step 1: **
+Random Forest is chosen as the ML technique to predict the house prices in Ames, Iowa. It is an ensemble of supervised learning methods that creates a multiple of decision trees based on random selection of data and of variables to conduct classification, regression or other tasks. Finally it predicts the class of a dependent variables based on many decision trees.
+
+The base of Random Forest, the concept of decision trees is the concept of an algorithm to split the dataset sequentially by a number of rules, depending on the independent variables, such that the class (the dependent variable) can be predicted.
+To that end, certain criteria, such as the information gain for categorical variables or the gini index for continuous variables, are used to decide at each nodes which attribute is the best to use to split the dataset.
+Then, the dataset is split according to that established rule, the tree is grown and for each subtree, a new criterion is chosen and a new split conducted. 
+
+Random Forest applies this procedure multiple times. Each time, it selects randomly a number of features out of all independent variables and creates a decision tree with them. It then predicts the target by applying the rules of each randomly created decision tree to the test features, counts the votes for each prediction and choses the target with the most votes as the final prediction.
+
+**Step 2: **
+As in Challenge A, we remove the variables that have more than 10% missing observations. To ensure that the same variables are eliminated in both the training and the test dataset, we merge both datasets, eliminate the variables and resplit the datasets according to the Id as they were split before.
+
+```{r step1.2b}
+
+#To make the merger possible, I create an empty column SalePrice in the test dataset
+SalePrice<-c(1:1459)
+extendedTest <- cbind(test, SalePrice)
+
+#Then both datasets are merged
+mergedData<-rbind(train, extendedTest)
+
+#The variables with more than 10% NAs are eliminated
+mergedData2<-mergedData[, -which(colMeans(is.na(mergedData)) > 0.1)]
+
+#Then mergedData is re-split into the training and testing dataset, he latter as before beginning at Id 1461. Further, the variable Id is removed from both datasets, additionally "SalePrice" is removed from the test dataset
+train1<-filter(mergedData2, Id<1461)
+train2<-train1[ , -which(names(train1) %in% c("Id"))]
+
+test1<-filter(mergedData2, Id>1460)
+test2<-test1[ , -which(names(test1) %in% c("SalePrice", "Id"))]
+
+```
+
+Then, the Random Forest technique is trained on the training data.
+
+```{r step1.2c}
+
+# Run randomForest model
+modFit<-randomForest(SalePrice ~ . ,data=train2,na.action=na.exclude)#,na.action=na.exclude
+summary(modFit)
+
+# get a single Tree of the model
+getTree(modFit,1)
+
+```
+
+**Step 3: **
+The predictions are compared to the predictions of the linear regression made in Challenge A.
+
+```{r step1.3}
+
+### Predicting new values
+pred<-predict(modFit,test2,na.action=na.exclude)
+
+### Prepare data for visualization and comparison
+
+# Put the new values in a dataframe
+pred1<-data.frame(pred)
+
+# Bind prediction with the Id
+pred2<-cbind(test1$Id, pred1)
+
+colnames(pred2)
+#Adapt the names of the colums if necessary
+colnames(pred2)<-c("Id","SalePrice")
+
+dim(pred2)
+
+# Call the predictions from the linear model created in challenge A
+lmPred<-read.csv("oldPredictions.CSV",header=T,dec=",")
+class(lmPred)
+dim(lmPred)
+
+colnames(lmPred)
+#Adapt the names of the colums if necessary
+colnames(lmPred)<-c("Id","SalePrice")
+
+#Replace the Ids in lmPred by the Ids in pred2 to make comparison in graph possible
+lmPred[,1]<-pred2[,1]
+
+#Convert all factors into numerics
+pred2[] <- lapply(pred2, function(x) {
+  if(is.factor(x)) as.numeric(as.character(x)) else x})
+lmPred[] <- lapply(lmPred, function(x) {
+  if(is.factor(x)) as.numeric(as.character(x)) else x})
+
+```
+```{r graph1, results="markup", include=TRUE}
+
+# Visualize both dataframes of predictions in one plot
+ggplot() + 
+      geom_point(data=pred2, mapping=aes(x=Id,y=SalePrice),color="red") +
+      geom_step(data=lmPred, mapping=aes(x=Id,y=SalePrice),color="blue")
+```
+
+As can be seen from the graph above, the predictions made using linear regression (in blue) and Random Forest (in red) are very similar.
+
+## Task 2B - Overfitting in Machine Learning (continued)
+
+```{r step2.0}
+
+##Preliminary steps##
+
+#simulate x and y (defined in Challenge A)
+set.seed(1)
+x <- rnorm(n=150, mean=0, sd=1)
+e <- rnorm(n=150, mean=0, sd=1)
+x
+y <- x^3 + e
+y
+
+data.frame(x,y) #produces a table for x and y
+
+#split the sample in two
+set.seed(1)
+indexes <- sample(1:nrow(data.frame(x,y)), size=0.2*nrow(data.frame(x,y)))
+test <- data.frame(x,y)[indexes,] #20% of the sample is in this subsample
+train <- data.frame(x,y)[-indexes,] #80% of the sample is in this subsample
+
+```
+
+**Step 1 and 2: **
+We estimate a low and a high flexibility local linear model on the training data. We plot the two regression lines for a better legibility.
+
+```{r step2.1a}
+
+##Step1: low flexibility local linear model##
+#the bandwidth bw is the standard deviation of the kernel
+ll.fit.lowflex <- npreg(y ~ x, data=train, bws=0.5, method="ll")
+summary(ll.fit.lowflex)
+
+```
+
+Estimation of the low flexibility local linear model:
+```{r graph24, results="markup", include=TRUE}
+
+plot(ll.fit.lowflex) #we plot the regression line to have a look at it
+
+```
+```{r step2.1ab}
+
+##Step2: high flexibility local linear model##
+ll.fit.highflex <- npreg(y ~ x, data=train, bws=0.01, method="ll")
+summary(ll.fit.highflex)
+
+```
+
+Estimation of the high flexibility local linear model:
+```{r graph22, results="markup", include=TRUE}
+
+plot(ll.fit.highflex) #we plot the regression line to have a look at it
+
+```
+```{r step2.1ac}
+
+#we compute the predicted values from each regression
+predictedlow_train <- predict(ll.fit.lowflex)
+predictedhigh_train <- predict(ll.fit.highflex)
+data.frame(predictedlow_train, predictedhigh_train)
+#allows us to check that we have 120 observations in each sample (120 being 80% of 150)
+
+```
+
+**Step 3: **
+The scatterplot presents a red curve which refers to the regression on the training data and and a blue curve that refers to the regression on the test data. 
+
+```{r step2.3, results="markup", include=TRUE}
+
+#we use geom_point for the scatter plot of x and y
+#we use geom_line to draw the curve of y = x^3
+#we use geom_line and set y = prediction from the model to add the red and blue lines
+ggplot(data=train) + 
+  geom_point(mapping=aes(x=x, y=y)) + 
+  geom_line(mapping=aes(x=x, y=x^3)) + 
+  geom_line((mapping=aes(x=x, y=predictedlow_train)), col="red") + 
+  geom_line((mapping=aes(x=x, y=predictedhigh_train)), col="blue")
+
+```
+
+**Step 4: **
+The high flexibility local linear model is more flexible and more variable as we can see from its plot that it is less smooth than the low flexibility one. Thus, the least biased predictions are the ones from the low flexibility local linear model because the red curve is the closest one to the curve of x^3 in terms of trend.
+
+**Step 5: **
+We predict the models estimated in Steps 1 and 2 now on the test data. Then we make make a scatter of x and y with the predictions from the two models. See appendix 4.
+The high flexibility local linear model is more flexible and more variable as we can see from its plot that it is less smooth than the low flexibility one. Besides, the bias of the least biased model (ie the low flexibility local linear model) has not changed as the red curve is the same as in the previous plot.
+
+```{r step2.5}
+
+##Step5##
+#we use the model we created on train but we estimate it on the test data now using the option "newdata"
+ll.fit.lowflex_test <- predict(ll.fit.lowflex, newdata=test)
+ll.fit.highflex_test <- predict(ll.fit.highflex, newdata=test)
+data.frame(ll.fit.lowflex_test, ll.fit.highflex_test) #they both contain 30 observations (30 being 20% of 150)
+
+```
+```{r graph23, results="markup", include=TRUE}
+
+ggplot(data=test) +
+  geom_point(mapping=aes(x=x, y=y)) + 
+  geom_line(mapping=aes(x=x, y=x^3)) + 
+  geom_line((mapping=aes(x=x, y=ll.fit.lowflex_test)), col="red") + 
+  geom_line((mapping=aes(x=x, y=ll.fit.highflex_test)), col="blue")
+
+```
+
+**Step 6: **
+We create a vector of bandwidth that we call x0. This vector contains 491 elements.
+
+```{r step2.6}
+
+##Step6: create a vector of bandwidth going from 0.01 to 0.5 with a step of 0.001##
+x0 <- seq(0.01, 0.5, 0.001)
+length(x0) #x0 contains 491 elements
+
+```
+
+**Step 7: **
+We create a function which runs a npreg taking each bandwidth of x0 as the bandwidth for the regression on the training data.
+
+```{r step2.7}
+
+##Step7##
+#we use lapply to create a loop: the object is x0, ie the bandwidth, and the function is "run a npreg of y on x on train with a bandwidth equal to each value contained in x0"
+llbw_train <- lapply(X=x0, FUN=function(x0) {
+  npreg(y ~ x, data=train, bws=x0, method="ll")
+  }
+)
+
+```
+
+**Step 8 and 9: **
+We create a loop that first computes the predicted values for each np regression (in Step 7) and second computes the MSE from all these predicted values. We do this on the training data (Step 8) and on the test data (Step 9).
+
+```{r step2.8}
+
+##Step8: MSE on the training data##
+#we create a loop that:
+#1: computes the predicted values from each regression for each bandwidth on train
+#2: computes the MSE for each of these predicted values
+MSE_train <- function(argument){
+  predictions_train <- predict(argument, newdata=train)
+  train %>% summarize(mean((predictions_train-train$y)^2))
+}
+
+MSE_train_final <- unlist(lapply(X=llbw_train, FUN=MSE_train))
+
+
+##Step9: MSE on the test data##
+#same now for the test data
+MSE_test <- function(argument){
+  predictions_test <- predict(argument, newdata=test)
+  test %>% summarize(mean((predictions_test-test$y)^2))
+}
+
+MSE_test_final <- unlist(lapply(X=llbw_train, FUN=MSE_test))
+
+```
+
+**Step 10: **
+We plot the two MSE (on the y-axis) in function of the bandwidths (on the x-axis). The blue line refers to the MSE from the training data and the orange one to those from the test data. See appendix 5. 
+
+Therefore we observe that the MSE are an increasing function of the bandwidth on the training data. However, the MSE on the test data are not a monotonic function of the bandwidth. First they are decreasing with the bandwidth and then they increase as the bandwidth increases. 
+
+In our case, the two curves do not intersect event though they are supposed to. Anyway, the MSE from the test data is always higher than those from the train data. It might be because the training data contains more observations as the MSE are a decreasing function of the number of observations in the data, ie n.
+
+```{r step2.10, results="markup", include=TRUE}
+
+##Step10##
+#We create a table containing the 491 bandwidth and the MSE on train and on test
+table_MSE <- data.frame("bandwidth"=x0, "MSE train"=MSE_train_final, "MSE test"=MSE_test_final)
+#To view it, write: View(table_MSE)
+
+#we plot the MSE to see how they change with the bandwidth
+#we use the table previously created
+ggplot(data=table_MSE) + 
+  geom_line(mapping=aes(x=bandwidth, y=MSE_train_final), col="blue") + 
+  geom_line(mapping=aes(x=bandwidth, y=MSE_test_final), col="orange")
+
+```
+
+
+## Task 3B - Privacy regulation compliance in France
+
+**Step 1: **
+We import of the CNIL data.
+
+```{r step31}
+
+#Take the start time
+start.time <- Sys.time()
+start.time
+
+#File > Import dataset > from Excel
+CNIL <- read_excel("OpenCNIL_Organismes_avec_CIL_VD_20171115.xlsx")
+
+```
+
+**Step 2: **
+Because departments in France are identified only by the first two digits of the poscode, we extract only those 2 in the Code_Postal column. Then we create a table with number of organizations per department.
+
+```{r step32}
+
+#Extract only the first two digits of the "Code Postal" column using the substr command
+substr(CNIL$'Code Postal',0,2)
+
+#Number of organizations per department are displayed by tabling the column "Code Postal"
+Nice_Table <- table(CNIL$'Code Postal')
+
+```
+
+**Step 3: **
+To make it faster to process, we have used Excel to delete columns that are not necessary to merge. New dataset consists of the SIREN, date and the size of the company expressed by the number of eployees (EFENCENT). However, we still have to manage with a large number of the rows. Because we don't have enough RAM on our PCs, we decide to use an ff package. Its usage provides data structures that are stored on the disc, acting as if they were in the memory. Only necessary parts of the data are mapped into main memory. We start working with a dataset with deleting duplicated rows, concerning the SIREN column.This step left us having only one information about the size for each SIREN number. Now it is possible to merge the information from filteredSirc into the CNIL data.
+
+```{r step33}
+
+#Making header equal to TRUE means that we will not count the first row as observations.
+shortSirc2<-read.csv2.ffdf(file="shortSirc2.csv", header=TRUE) 
+dim(shortSirc2)
+
+#Remove duplicates in shortSirc2
+filteredSirc<-subset(shortSirc2, !duplicated(SIREN))
+dim(filteredSirc)
+
+#The merger of CNIL and filteredSirc works by the SIREN number, that is common for both datasets.
+mergedData<-merge(CNIL, filteredSirc, by="SIREN", all=TRUE)
+dim(mergedData)
+
+```
+
+**Step 4: **
+We plot the histogram of the size of companies that nominated a CIL. The histogram exposes having many missing in our data. It becomes clear that most of the companies from our dataset employ 0 or 1 employees. There are only very few companies that have many employees.
+
+```{r graph3, results="markup", include=TRUE}
+
+# Plot of the size of companies nominated a CIL with geom_bar as data is discrete
+ggplot(data=mergedData)+  geom_bar(aes(EFENCENT))
+
+```
+
+The time needed to run all the commands in task 3 is the following:
+
+```{r timeStep3, results="markup", include=TRUE}
+
+# Take end time and calculate thereby the time span for the whole task 3
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+```
+
+## Sources: 
+
+Dataaspirant. 2017. *How the Random Forest Algorithm works in Machine Learning.* Retrieved from: http://dataaspirant.com/2017/05/22/random-forest-algorithm-machine-learing/ (02/12/2017)
+
+Udemy. 2017. *Beginner to Advanced Guide on Machine Learning with R.* Retrieved from: https://www.udemy.com/beginner-to-advanced-guide-on-machine-learning-with-r-tool/learn/v4/overview (29/11/2017).
